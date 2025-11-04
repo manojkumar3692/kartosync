@@ -3,6 +3,8 @@ import React from 'react';
 import { Text, TouchableOpacity, View } from 'react-native';
 import { C } from '../theme/colors';
 
+type Tone = 'pending' | 'shipped' | 'paid';
+
 export default function StatusPill({
   active,
   label,
@@ -13,13 +15,29 @@ export default function StatusPill({
   active: boolean;
   label: string;
   icon: string;
-  tone: 'pending' | 'delivered' | 'paid';
+  tone: Tone;
   onPress: () => void;
 }) {
-  const bg = active
-    ? (tone === 'pending' ? C.pending : tone === 'delivered' ? C.delivered : C.paid)
-    : (tone === 'pending' ? C.pendingSoft : tone === 'delivered' ? C.deliveredSoft : C.paidSoft);
-  const color = active ? '#FFFFFF' : (tone === 'pending' ? C.pending : tone === 'delivered' ? C.delivered : C.paid);
+  // Graceful fallback: if your theme doesn't yet have shipped colors,
+  // reuse delivered colors so nothing breaks visually.
+  const toneColorMap = {
+    pending: {
+      hard: C?.pending,
+      soft: C?.pendingSoft,
+    },
+    shipped: {
+      hard: (C as any)?.shipped ?? (C as any)?.delivered ?? '#10B981',
+      soft: (C as any)?.shippedSoft ?? (C as any)?.deliveredSoft ?? '#ECFDF5',
+    },
+    paid: {
+      hard: C?.paid,
+      soft: C?.paidSoft,
+    },
+  } as const;
+
+  const colors = toneColorMap[tone];
+  const bg = active ? colors.hard : colors.soft;
+  const color = active ? '#FFFFFF' : colors.hard;
   const border = active ? 'transparent' : 'rgba(0,0,0,0)';
 
   return (

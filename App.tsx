@@ -52,7 +52,11 @@ export default function App() {
             <Stack.Screen name="Orders">
               {(props) => <OrdersScreen {...props} onLogout={onLogout} />}
             </Stack.Screen>
-            <Stack.Screen name="Connect" component={ConnectScreen} />
+            <Stack.Screen
+  name="Connect"
+  component={ConnectScreen}
+  options={{ headerShown: true, title: 'Settings' }}
+/>
           </>
         )}
       </Stack.Navigator>

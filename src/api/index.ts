@@ -36,6 +36,6 @@ export async function listOrders() {
   return r.data; // Order[]
 }
 
-export async function updateStatus(id: string, status: 'pending'|'delivered'|'paid') {
+export async function updateStatus(id: string, status: 'pending'|'shipped'|'paid') {
   await axios.post(`${API_BASE}/api/orders/${id}/status`, { status });
 }

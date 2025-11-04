@@ -1,13 +1,27 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, TouchableOpacity, Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { login, signup, setToken } from '../api';
+import { getBuildInfo } from '../native/buildInfo';
 
 export default function LoginScreen({ onAuthed }: { onAuthed: () => void }) {
   const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
+
+  const [ver, setVer] = useState<{versionName:string; versionCode:number; buildType:string} | null>(null);
+
+useEffect(() => {
+  (async () => {
+    try {
+      const b = await getBuildInfo();
+      setVer({ versionName: b.versionName, versionCode: b.versionCode, buildType: b.buildType });
+    } catch {
+      setVer({ versionName: "0.0.0", versionCode: 0, buildType: __DEV__ ? "debug" : "release" });
+    }
+  })();
+}, []);
 
   async function submit() {
     try {
@@ -73,6 +87,11 @@ export default function LoginScreen({ onAuthed }: { onAuthed: () => void }) {
           {mode === 'login' ? "New here? Create an account" : 'Have an account? Log in'}
         </Text>
       </TouchableOpacity>
+      <View style={{ alignItems: 'center', marginTop: 24 }}>
+  <Text style={{ color: '#94A3B8', fontSize: 12 }}>
+    {ver ? `v${ver.versionName} (${ver.versionCode}) · ${ver.buildType}` : 'v…'}
+  </Text>
+</View>
     </View>
   );
 }

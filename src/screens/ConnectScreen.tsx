@@ -5,6 +5,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 import HmacSHA256 from "crypto-js/hmac-sha256";
 import Hex from "crypto-js/enc-hex";
+import { getBuildInfo } from "../native/buildInfo";
 
 const { KSConfig } = NativeModules || {};
 
@@ -17,6 +18,21 @@ export default function ConnectScreen() {
   const [orgPhone, setOrgPhone] = useState("");
   const [secret, setSecret] = useState("");
   const [busy, setBusy] = useState(false);
+
+  // build version
+
+
+  const [ver, setVer] = useState<{versionName:string;versionCode:number;buildType:string}|null>(null);
+useEffect(() => {
+  (async () => {
+    try {
+      const b = await getBuildInfo();
+      setVer({ versionName: b.versionName, versionCode: b.versionCode, buildType: b.buildType });
+    } catch {
+      setVer({ versionName: "0.0.0", versionCode: 0, buildType: __DEV__ ? "debug" : "release" });
+    }
+  })();
+}, []);
 
   // Load saved values (from AsyncStorage for UI) and mirror from native if exists
   useEffect(() => {
@@ -194,6 +210,11 @@ export default function ConnectScreen() {
           {"\n"}• If you configured <Text style={{ fontWeight: "700" }}>/api/ingest/nl-ping</Text>, you’ll see a ping when it binds.
         </Text>
       </View>
+      <View style={{ marginTop: 12, alignItems: "center" }}>
+  <Text style={{ color: "#9CA3AF", fontSize: 12 }}>
+    {ver ? `v${ver.versionName} (${ver.versionCode}) · ${ver.buildType}` : "v…"}
+  </Text>
+</View>
     </ScrollView>
   );
 }

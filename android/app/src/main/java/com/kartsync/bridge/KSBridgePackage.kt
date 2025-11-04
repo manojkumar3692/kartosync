@@ -7,7 +7,7 @@ import com.facebook.react.uimanager.ViewManager
 
 class KSBridgePackage : ReactPackage {
   override fun createNativeModules(reactContext: ReactApplicationContext): List<NativeModule> {
-    return listOf(KSBridgeModule(reactContext))
+    return listOf(KSBridgeModule(reactContext),KSBuildInfoModule(reactContext))
   }
   override fun createViewManagers(reactContext: ReactApplicationContext): List<ViewManager<*, *>> {
     return emptyList()
