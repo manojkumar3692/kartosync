@@ -63,7 +63,7 @@ export default function OrdersScreen({ navigation, onLogout }: any) {
     return () => clearInterval(timerRef.current);
   }, [ready, refresh]);
 
-  // Make signature return void; run async inside to satisfy both sync/async consumers.
+  // Keep signature sync for child; run async inside
   function setStatus(id: string, s: OrderStatus): void {
     (async () => {
       try {
@@ -129,6 +129,19 @@ export default function OrdersScreen({ navigation, onLogout }: any) {
     </View>
   );
 
+  // Inline renderer so we can close over `item` and pass onPatchItems
+  const renderItem = ({ item }: { item: any }) => (
+    <OrderCard
+      o={item}
+      onSetStatus={setStatus}
+      onPatchItems={(patched) => {
+        setOrders(prev =>
+          prev.map(o => (o.id === item.id ? { ...o, items: patched } : o))
+        );
+      }}
+    />
+  );
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }}>
       <StatusBar barStyle="dark-content" />
@@ -137,7 +150,7 @@ export default function OrdersScreen({ navigation, onLogout }: any) {
         contentContainerStyle={{ paddingHorizontal: 12, paddingBottom: 16, gap: 12 }}
         data={orders}
         keyExtractor={x => x.id}
-        renderItem={({ item }) => <OrderCard o={item} onSetStatus={setStatus} />}
+        renderItem={renderItem}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} />}
         ListEmptyComponent={Empty}
       />

@@ -2,8 +2,11 @@ import axios from 'axios';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-export const API_BASE = 'https://characterful-enneadic-cherelle.ngrok-free.dev';
+// export const API_BASE = 'https://characterful-enneadic-cherelle.ngrok-free.dev';
+export const API_BASE = 'http://10.0.2.2:8787';
 
+// --- AI correction feedback ---
+export type CorrectionItem = { qty: number | null; unit?: string | null; name?: string; canonical?: string | null };
 
 export function setToken(token?: string) {
   if (token) axios.defaults.headers.common.Authorization = `Bearer ${token}`;
@@ -38,4 +41,17 @@ export async function listOrders() {
 
 export async function updateStatus(id: string, status: 'pending'|'shipped'|'paid') {
   await axios.post(`${API_BASE}/api/orders/${id}/status`, { status });
+}
+
+
+
+export async function submitCorrection(
+  orderId: string,
+  payload: { items: CorrectionItem[]; note?: string }
+) {
+  return axios.post(`${API_BASE}/api/ai-corrections`, {
+    order_id: orderId,
+    items: payload.items,
+    note: payload.note || null,
+  });
 }

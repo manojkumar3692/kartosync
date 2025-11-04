@@ -3,6 +3,7 @@ import React from 'react';
 import { View, Text, TouchableOpacity, Linking, Platform, Alert } from 'react-native';
 import { C } from '../theme/colors';
 import { timeAgo } from '../api/timeAgo';
+import CorrectionSheet from './CorrectionSheet';
 
 type Item = { qty: number; unit?: string; canonical?: string; name?: string; meta?: { cut?: string[] } };
 type OrderStatus = 'pending' | 'shipped' | 'paid';
@@ -67,13 +68,18 @@ async function openWhatsApp(phoneE164: string) {
 export default function OrderCard({
   o,
   onSetStatus,
+  onPatchItems, // optional: if provided, parent list will patch items; otherwise we patch locally
 }: {
   o: Order;
   onSetStatus: (id: string, s: OrderStatus) => void | Promise<void>;
+  onPatchItems?: (items: any[]) => void;
 }) {
   const when = timeAgo(o.created_at);
   const who = o.customer_name || o.source_phone || 'Customer';
   const phoneE164 = normalizePhone(o.source_phone || undefined);
+
+  // --- Fix flow state
+  const [fixOpen, setFixOpen] = React.useState(false);
 
   const prettyItems = (o.items || []).map((i, idx) => {
     const cut = i.meta?.cut?.length ? ` (${i.meta.cut.join(', ')})` : '';
@@ -98,6 +104,14 @@ export default function OrderCard({
 
   const fallback =
     !prettyItems.length && o.raw_text ? <Text style={[{ color: C.text, fontSize: 14 }, F(400)]}>{o.raw_text}</Text> : null;
+
+  // Current items passed into the correction sheet
+  const currentItems = (o.items || []).map(i => ({
+    qty: typeof i.qty === 'number' ? i.qty : null,
+    unit: (i.unit as any) ?? null,
+    name: i.canonical || i.name || '',
+    canonical: i.canonical ?? null,
+  }));
 
   return (
     <View
@@ -160,6 +174,22 @@ export default function OrderCard({
         </TouchableOpacity>
       </View>
 
+      {/* Wrong Parse → Fix */}
+      <View style={{ flexDirection: 'row', gap: 12, marginTop: 10 }}>
+        <TouchableOpacity
+          onPress={() => setFixOpen(true)}
+          style={{
+            flex: 1,
+            backgroundColor: '#F59E0B',
+            paddingVertical: 12,
+            borderRadius: 14,
+            alignItems: 'center',
+          }}
+        >
+          <Text style={[{ color: '#fff', fontSize: 15 }, F(800)]}>✏️  Wrong Parse → Fix</Text>
+        </TouchableOpacity>
+      </View>
+
       {/* Segmented status switcher (Pending / Shipped / Paid) */}
       <View
         style={{
@@ -205,6 +235,29 @@ export default function OrderCard({
           );
         })}
       </View>
+
+      {/* Correction bottom sheet */}
+      <CorrectionSheet
+        visible={fixOpen}
+        onClose={() => setFixOpen(false)}
+        orderId={o.id}
+        initialItems={currentItems}
+        onPatched={(items) => {
+          const patched = items.map(it => ({
+            qty: it.qty,
+            unit: it.unit || undefined,
+            canonical: it.canonical || undefined,
+            name: it.name || undefined,
+          })) as any[];
+
+          // Prefer lifting to parent, otherwise patch locally for instant feel.
+          if (onPatchItems) {
+            onPatchItems(patched);
+          } else {
+            (o as any).items = patched; // local optimistic patch
+          }
+        }}
+      />
     </View>
   );
 }
