@@ -1,7 +1,10 @@
+// App.tsx
 import React, { useEffect, useState } from "react";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import RNBootSplash from "react-native-bootsplash";
+
 import LoginScreen from "./src/screens/LoginScreen";
 import OrdersScreen from "./src/screens/OrderScreen";
 import ConnectScreen from "./src/screens/ConnectScreen";
@@ -10,12 +13,18 @@ import { bootstrapAuth, setToken } from "./src/api";
 const Stack = createNativeStackNavigator();
 
 export default function App() {
-  const [authed, setAuthed] = useState(false);
+  const [authed, setAuthed] = useState<boolean | null>(null);
 
   useEffect(() => {
     (async () => {
-      const t = await bootstrapAuth();
-      setAuthed(!!t);
+      // Bootstrap stored token & session
+      const token = await bootstrapAuth();
+      setAuthed(!!token);
+
+      // Hide splash after auth check completes
+      setTimeout(() => {
+        RNBootSplash.hide({ fade: true });
+      }, 300);
     })();
   }, []);
 
@@ -24,6 +33,9 @@ export default function App() {
     setToken(undefined);
     setAuthed(false);
   }
+
+  // While checking token, keep splash visible
+  if (authed === null) return null;
 
   return (
     <NavigationContainer>
@@ -47,15 +59,3 @@ export default function App() {
     </NavigationContainer>
   );
 }
-
-// import React from "react";
-// import { SafeAreaView } from "react-native";
-// import ConnectScreen from "./src/screens/ConnectScreen";
-
-// export default function App() {
-//   return (
-//     <SafeAreaView style={{ flex: 1 }}>
-//       <ConnectScreen />
-//     </SafeAreaView>
-//   );
-// }
