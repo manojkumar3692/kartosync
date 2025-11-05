@@ -1,115 +1,306 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, Alert } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { login, signup, setToken } from '../api';
-import { getBuildInfo } from '../native/buildInfo';
+// src/screens/LoginScreen.tsx
+import React, { useEffect, useState } from "react";
+import {
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  Alert,
+  SafeAreaView,
+  Platform,
+} from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { login, signup, setToken } from "../api";
+import { getBuildInfo } from "../native/buildInfo";
 
 export default function LoginScreen({ onAuthed }: { onAuthed: () => void }) {
-  const [mode, setMode] = useState<'login' | 'signup'>('login');
-  const [name, setName] = useState('');
-  const [phone, setPhone] = useState('');
-  const [password, setPassword] = useState('');
+  const [mode, setMode] = useState<"login" | "signup">("login");
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [password, setPassword] = useState("");
+  const [ver, setVer] = useState<{ versionName: string; versionCode: number; buildType: string } | null>(null);
+  const [loading, setLoading] = useState(false);
 
-  const [ver, setVer] = useState<{versionName:string; versionCode:number; buildType:string} | null>(null);
-
-useEffect(() => {
-  (async () => {
-    try {
-      const b = await getBuildInfo();
-      setVer({ versionName: b.versionName, versionCode: b.versionCode, buildType: b.buildType });
-    } catch {
-      setVer({ versionName: "0.0.0", versionCode: 0, buildType: __DEV__ ? "debug" : "release" });
-    }
-  })();
-}, []);
+  useEffect(() => {
+    (async () => {
+      try {
+        const b = await getBuildInfo();
+        setVer({ versionName: b.versionName, versionCode: b.versionCode, buildType: b.buildType });
+      } catch {
+        setVer({ versionName: "0.0.0", versionCode: 0, buildType: __DEV__ ? "debug" : "release" });
+      }
+    })();
+  }, []);
 
   async function submit() {
     try {
+      setLoading(true);
       let data: any;
-    if (mode === 'signup') {
-    if (!name?.trim()) return Alert.alert('Enter shop name');
-    if (!phone?.trim()) return Alert.alert('Enter phone');
-    if (!password?.trim()) return Alert.alert('Enter password');
-  
-    data = await signup(name, phone, password);   // ✅ include password
-  } else {
-    data = await login(phone, password);
-  }
-      await AsyncStorage.setItem('token', data.token);
-    //   const token = await AsyncStorage.getItem('token');
-      console.log('🪙 Token:', data.token);
+      if (mode === "signup") {
+        if (!name?.trim()) return Alert.alert("Enter shop name");
+        if (!phone?.trim()) return Alert.alert("Enter phone");
+        if (!password?.trim()) return Alert.alert("Enter password");
+        data = await signup(name, phone, password); // ✅ logic unchanged
+      } else {
+        data = await login(phone, password);        // ✅ logic unchanged
+      }
+      await AsyncStorage.setItem("token", data.token);
       setToken(data.token);
       onAuthed();
     } catch (e: any) {
-      Alert.alert('Error', e?.response?.data?.error || 'Failed');
+      Alert.alert("Error", e?.response?.data?.error || "Failed");
+    } finally {
+      setLoading(false);
     }
   }
 
+  const isLogin = mode === "login";
+
   return (
-    <View style={{ flex: 1, padding: 20, justifyContent: 'center', backgroundColor: '#fff' }}>
-      <Text style={{ fontSize: 22, fontWeight: '700', marginBottom: 8 }}>KartoSync</Text>
-      <Text style={{ color: '#666', marginBottom: 18 }}>
-        {mode === 'signup' ? 'Create your shop account' : 'Sign in to your shop'}
-      </Text>
-
-      {mode === 'signup' && (
-        <TextInput
-          placeholder="Shop name"
-          value={name}
-          onChangeText={setName}
-          style={styles.input}
+    <SafeAreaView style={{ flex: 1, backgroundColor: "#FFFFFF" }}>
+      {/* Subtle background accents */}
+      <View pointerEvents="none" style={{ position: "absolute", inset: 0 }}>
+        <View
+          style={{
+            position: "absolute",
+            top: -120,
+            left: -120,
+            width: 260,
+            height: 260,
+            borderRadius: 260,
+            backgroundColor: "#C7D2FE", // indigo-200
+            opacity: 0.35,
+          }}
         />
-      )}
+        <View
+          style={{
+            position: "absolute",
+            bottom: -100,
+            right: -100,
+            width: 240,
+            height: 240,
+            borderRadius: 240,
+            backgroundColor: "#BBF7D0", // emerald-200
+            opacity: 0.35,
+          }}
+        />
+      </View>
 
-      <TextInput
-        placeholder="Phone (e.g. +919999999999)"
-        value={phone}
-        onChangeText={setPhone}
-        keyboardType="phone-pad"
-        style={styles.input}
-      />
-      <TextInput
-        placeholder="Password"
-        value={password}
-        onChangeText={setPassword}
-        secureTextEntry
-        style={styles.input}
-      />
+      <View style={{ flex: 1, paddingHorizontal: 20, justifyContent: "center" }}>
+        {/* Brand row */}
+        <View style={{ alignItems: "center", marginBottom: 16 }}>
+          <View
+            style={{
+              height: 44,
+              width: 44,
+              borderRadius: 12,
+              backgroundColor: "#111827",
+              alignItems: "center",
+              justifyContent: "center",
+              shadowColor: "#000",
+              shadowOpacity: 0.08,
+              shadowRadius: 8,
+              shadowOffset: { width: 0, height: 3 },
+              elevation: 2,
+            }}
+          >
+            <Text style={{ color: "#FFF", fontWeight: "800", fontSize: 12 }}>KS</Text>
+          </View>
+          <Text style={{ marginTop: 8, fontSize: 18, fontWeight: "700", color: "#111827" }}>
+            KartoSync
+          </Text>
 
-      <TouchableOpacity onPress={submit} style={styles.btn}>
-        <Text style={{ color: '#fff', fontWeight: '700' }}>
-          {mode === 'signup' ? 'Create account' : 'Log in'}
-        </Text>
-      </TouchableOpacity>
+          {/* “Live in minutes — no code” pill */}
+          {/* <View
+            style={{
+              marginTop: 10,
+              alignSelf: "center",
+              paddingHorizontal: 10,
+              paddingVertical: 6,
+              borderRadius: 999,
+              borderWidth: 1,
+              borderColor: "#E5E7EB",
+              backgroundColor: "#FFFFFF",
+              flexDirection: "row",
+              alignItems: "center",
+            }}
+          >
+            <View
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: 999,
+                backgroundColor: "#10B981", // emerald-500
+                marginRight: 6,
+              }}
+            />
+            <Text style={{ fontSize: 12, color: "#374151" }}>Live in minutes — no code</Text>
+          </View> */}
+        </View>
 
-      <TouchableOpacity onPress={() => setMode(mode === 'login' ? 'signup' : 'login')}>
-        <Text style={{ color: '#3b82f6', marginTop: 12 }}>
-          {mode === 'login' ? "New here? Create an account" : 'Have an account? Log in'}
-        </Text>
-      </TouchableOpacity>
-      <View style={{ alignItems: 'center', marginTop: 24 }}>
-  <Text style={{ color: '#94A3B8', fontSize: 12 }}>
-    {ver ? `v${ver.versionName} (${ver.versionCode}) · ${ver.buildType}` : 'v…'}
-  </Text>
-</View>
-    </View>
+        {/* Card */}
+        <View
+          style={{
+            backgroundColor: "#FFFFFF",
+            borderRadius: 18,
+            padding: 18,
+            borderWidth: 1,
+            borderColor: "#E5E7EB",
+            shadowColor: "#000",
+            shadowOpacity: 0.06,
+            shadowRadius: 10,
+            shadowOffset: { width: 0, height: 3 },
+            elevation: 2,
+          }}
+        >
+          {/* Segmented control */}
+          <View
+            style={{
+              backgroundColor: "#F3F4F6",
+              borderRadius: 12,
+              padding: 4,
+              flexDirection: "row",
+              gap: 6,
+              marginBottom: 14,
+            }}
+          >
+            {(["login", "signup"] as const).map((m) => {
+              const active = mode === m;
+              return (
+                <TouchableOpacity
+                  key={m}
+                  onPress={() => setMode(m)}
+                  style={{
+                    flex: 1,
+                    backgroundColor: active ? "#FFFFFF" : "transparent",
+                    borderRadius: 10,
+                    paddingVertical: 10,
+                    alignItems: "center",
+                    borderWidth: active ? 1 : 0,
+                    borderColor: active ? "#E5E7EB" : "transparent",
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontSize: 13,
+                      color: active ? "#111827" : "#6B7280",
+                      fontWeight: active ? "800" : "600",
+                    }}
+                  >
+                    {m === "login" ? "Login" : "Create Account"}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          <Text style={{ fontSize: 18, fontWeight: "700", color: "#111827" }}>
+            {isLogin ? "Sign in to your shop" : "Create your shop account"}
+          </Text>
+          <Text style={{ color: "#6B7280", marginTop: 4, marginBottom: 14 }}>
+            {isLogin
+              ? "Use the phone & password configured for your workspace."
+              : "Choose a shop name and set your login phone/password."}
+          </Text>
+
+          {!isLogin && (
+            <LabeledInput
+              label="Shop name"
+              value={name}
+              onChangeText={setName}
+              placeholder="e.g., Fresh Mart — Al Karama"
+              autoCapitalize="words"
+            />
+          )}
+
+          <LabeledInput
+            label="Phone"
+            value={phone}
+            onChangeText={setPhone}
+            placeholder="e.g., +9715XXXXXXX / +9199XXXXXXXX"
+            keyboardType="phone-pad"
+          />
+
+          <LabeledInput
+            label="Password"
+            value={password}
+            onChangeText={setPassword}
+            placeholder="Your password"
+            secureTextEntry
+          />
+
+          <TouchableOpacity
+            onPress={submit}
+            disabled={loading}
+            style={{
+              backgroundColor: loading ? "#4B5563" : "#111827",
+              paddingVertical: 14,
+              borderRadius: 12,
+              alignItems: "center",
+              marginTop: 6,
+            }}
+          >
+            <Text style={{ color: "#fff", fontWeight: "800" }}>
+              {isLogin ? (loading ? "Signing in…" : "Sign in") : loading ? "Creating…" : "Create account"}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={() => setMode(isLogin ? "signup" : "login")}
+            style={{ alignSelf: "center", marginTop: 12 }}
+          >
+            <Text style={{ color: "#2563EB", fontWeight: "600" }}>
+              {isLogin ? "New here? Create an account" : "Have an account? Log in"}
+            </Text>
+          </TouchableOpacity>
+
+          {/* tiny help */}
+          <Text style={{ marginTop: 12, color: "#94A3B8", fontSize: 12 }}>
+            If you see <Text style={{ fontWeight: "700", color: "#64748B" }}>password_not_set</Text>, set a password on
+            mobile or ask the admin.
+          </Text>
+        </View>
+
+        {/* Footer mini meta */}
+        <View style={{ alignItems: "center", marginTop: 16, marginBottom: Platform.OS === "ios" ? 6 : 0 }}>
+          <Text style={{ color: "#94A3B8", fontSize: 12 }}>
+            {ver ? `v${ver.versionName} (${ver.versionCode}) · ${ver.buildType}` : "v…"}
+          </Text>
+        </View>
+      </View>
+    </SafeAreaView>
   );
 }
 
-const styles = {
-  input: {
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    padding: 12,
-    borderRadius: 10,
-    marginBottom: 12,
-    backgroundColor: '#fafafa',
-  },
-  btn: {
-    backgroundColor: '#111827',
-    padding: 14,
-    borderRadius: 12,
-    alignItems: 'center',
-    marginTop: 4,
-  },
-} as const;
+/** Reusable labeled input to keep the feel consistent with web */
+function LabeledInput({
+  label,
+  ...props
+}: {
+  label: string;
+  value: string;
+  onChangeText: (t: string) => void;
+  placeholder?: string;
+  secureTextEntry?: boolean;
+  keyboardType?: any;
+  autoCapitalize?: "none" | "sentences" | "words" | "characters";
+}) {
+  return (
+    <View style={{ marginBottom: 10 }}>
+      <Text style={{ fontSize: 12, color: "#6B7280", marginBottom: 6, fontWeight: "600" }}>{label}</Text>
+      <TextInput
+        {...props}
+        style={{
+          borderWidth: 1,
+          borderColor: "#E5E7EB",
+          borderRadius: 12,
+          paddingHorizontal: 12,
+          paddingVertical: 12,
+          backgroundColor: "#FAFAFA",
+          color: "#111827",
+        }}
+        placeholderTextColor="#9CA3AF"
+      />
+    </View>
+  );
+}

@@ -5,8 +5,19 @@ import { C } from '../theme/colors';
 import { timeAgo } from '../api/timeAgo';
 import CorrectionSheet from './CorrectionSheet';
 
-type Item = { qty: number; unit?: string; canonical?: string; name?: string; meta?: { cut?: string[] } };
+type Item = {
+  qty: number | null;
+  unit?: string | null;
+  canonical?: string | null;
+  name?: string;             // keep undefined when absent (not null)
+  brand?: string | null;     // NEW
+  variant?: string | null;   // NEW
+  notes?: string | null;     // NEW
+  meta?: { cut?: string[] };
+};
+
 type OrderStatus = 'pending' | 'shipped' | 'paid';
+
 type Order = {
   id: string;
   created_at: string;
@@ -15,6 +26,17 @@ type Order = {
   raw_text?: string | null;
   items?: Item[];
   status: OrderStatus;
+};
+
+// For onPatchItems typing (fixes implicit any)
+type PatchItem = {
+  qty: number | null;
+  unit?: string | null;
+  canonical?: string | null;
+  name?: string;
+  brand?: string | null;
+  variant?: string | null;
+  notes?: string | null;
 };
 
 // Roboto on Android (keeps iOS default nice)
@@ -54,8 +76,9 @@ function StatusPill({ status }: { status: OrderStatus }) {
 }
 
 async function openWhatsApp(phoneE164: string) {
-  const deep = `whatsapp://send?phone=${encodeURIComponent(phoneE164)}&text=${encodeURIComponent('Hi! About your order…')}`;
-  const web = `https://wa.me/${encodeURIComponent(phoneE164)}?text=${encodeURIComponent('Hi! About your order…')}`;
+  const msg = 'Hi! About your order…';
+  const deep = `whatsapp://send?phone=${encodeURIComponent(phoneE164)}&text=${encodeURIComponent(msg)}`;
+  const web = `https://wa.me/${encodeURIComponent(phoneE164)}?text=${encodeURIComponent(msg)}`;
   try {
     const canDeep = await Linking.canOpenURL('whatsapp://send');
     if (canDeep) return Linking.openURL(deep);
@@ -72,13 +95,13 @@ export default function OrderCard({
 }: {
   o: Order;
   onSetStatus: (id: string, s: OrderStatus) => void | Promise<void>;
-  onPatchItems?: (items: any[]) => void;
+  onPatchItems?: (items: PatchItem[]) => void;
 }) {
   const when = timeAgo(o.created_at);
   const who = o.customer_name || o.source_phone || 'Customer';
   const phoneE164 = normalizePhone(o.source_phone || undefined);
 
-  // --- Fix flow state
+  // Fix flow state
   const [fixOpen, setFixOpen] = React.useState(false);
 
   const prettyItems = (o.items || []).map((i, idx) => {
@@ -86,15 +109,19 @@ export default function OrderCard({
     const unit = i.unit ? ` ${i.unit}` : '';
     const label = i.canonical || i.name || '';
     const qty = typeof i.qty === 'number' ? i.qty : '';
-    const text = `${qty}${unit} ${label}${cut}`.trim();
+    const brand = i.brand ? ` · ${i.brand}` : '';
+    const variant = i.variant ? ` · ${i.variant}` : '';
+    const text = `${qty}${unit} ${label}${brand}${variant}${cut}`.trim();
     return (
       <View
         key={idx}
         style={{
-          backgroundColor: '#F1F5F9', // slate-100
+          backgroundColor: '#F8FAFC', // slate-50
           paddingVertical: 10,
           paddingHorizontal: 14,
           borderRadius: 14,
+          borderWidth: 1,
+          borderColor: '#E5E7EB',
         }}
       >
         <Text style={[{ color: C.text, fontSize: 15 }, F(500)]}>{text}</Text>
@@ -105,12 +132,15 @@ export default function OrderCard({
   const fallback =
     !prettyItems.length && o.raw_text ? <Text style={[{ color: C.text, fontSize: 14 }, F(400)]}>{o.raw_text}</Text> : null;
 
-  // Current items passed into the correction sheet
+  // Pass current items (including brand/variant/notes) to the correction sheet
   const currentItems = (o.items || []).map(i => ({
     qty: typeof i.qty === 'number' ? i.qty : null,
     unit: (i.unit as any) ?? null,
     name: i.canonical || i.name || '',
     canonical: i.canonical ?? null,
+    brand: i.brand ?? null,
+    variant: i.variant ?? null,
+    notes: i.notes ?? null,
   }));
 
   return (
@@ -130,14 +160,28 @@ export default function OrderCard({
     >
       {/* Top row: time + status pill */}
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Text style={[{ color: '#6B7280', fontSize: 12 }, F(400)]}>{when}</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <Text style={[{ color: '#6B7280', fontSize: 12 }, F(400)]}>
+            {new Date(o.created_at).toLocaleString()}
+          </Text>
+          <View style={{ backgroundColor: '#F3F4F6', paddingVertical: 3, paddingHorizontal: 8, borderRadius: 999 }}>
+            <Text style={[{ color: '#374151', fontSize: 11 }, F(600)]}>{when}</Text>
+          </View>
+        </View>
         <StatusPill status={o.status} />
       </View>
 
-      {/* Who */}
-      <Text style={[{ marginTop: 8, color: '#0F172A', fontSize: 18 }, F(900)]} numberOfLines={1}>
-        {who}
-      </Text>
+      {/* Who + phone (if any) */}
+      <View style={{ marginTop: 8 }}>
+        <Text style={[{ color: '#0F172A', fontSize: 18 }, F(900)]} numberOfLines={1}>
+          {who}
+        </Text>
+        {phoneE164 ? (
+          <Text style={[{ color: '#6B7280', fontSize: 12, marginTop: 2 }, F(400)]} numberOfLines={1}>
+            {phoneE164}
+          </Text>
+        ) : null}
+      </View>
 
       {/* Items */}
       <View style={{ gap: 10, marginTop: 12 }}>{prettyItems}</View>
@@ -148,6 +192,7 @@ export default function OrderCard({
         <TouchableOpacity
           disabled={!phoneE164}
           onPress={() => phoneE164 && Linking.openURL(`tel:${phoneE164}`)}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           style={{
             flex: 1,
             backgroundColor: phoneE164 ? '#0B1220' : '#9CA3AF',
@@ -155,6 +200,7 @@ export default function OrderCard({
             borderRadius: 18,
             alignItems: 'center',
           }}
+          accessibilityLabel="Call customer"
         >
           <Text style={[{ color: '#fff', fontSize: 16 }, F(800)]}>📞  Call</Text>
         </TouchableOpacity>
@@ -162,6 +208,7 @@ export default function OrderCard({
         <TouchableOpacity
           disabled={!phoneE164}
           onPress={() => phoneE164 && openWhatsApp(phoneE164)}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           style={{
             flex: 1,
             backgroundColor: phoneE164 ? '#10B981' : '#9CA3AF',
@@ -169,6 +216,7 @@ export default function OrderCard({
             borderRadius: 18,
             alignItems: 'center',
           }}
+          accessibilityLabel="Open WhatsApp"
         >
           <Text style={[{ color: '#fff', fontSize: 16 }, F(800)]}>🟢  WhatsApp</Text>
         </TouchableOpacity>
@@ -178,6 +226,7 @@ export default function OrderCard({
       <View style={{ flexDirection: 'row', gap: 12, marginTop: 10 }}>
         <TouchableOpacity
           onPress={() => setFixOpen(true)}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           style={{
             flex: 1,
             backgroundColor: '#F59E0B',
@@ -185,6 +234,7 @@ export default function OrderCard({
             borderRadius: 14,
             alignItems: 'center',
           }}
+          accessibilityLabel="Fix wrong parse"
         >
           <Text style={[{ color: '#fff', fontSize: 15 }, F(800)]}>✏️  Wrong Parse → Fix</Text>
         </TouchableOpacity>
@@ -210,6 +260,7 @@ export default function OrderCard({
             <TouchableOpacity
               key={s}
               onPress={() => onSetStatus(o.id, s)}
+              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
               style={{
                 flex: 1,
                 backgroundColor: active ? '#FFFFFF' : 'transparent',
@@ -219,6 +270,7 @@ export default function OrderCard({
                 borderWidth: active ? 1 : 0,
                 borderColor: active ? '#E5E7EB' : 'transparent',
               }}
+              accessibilityLabel={`Mark ${label}`}
             >
               <Text
                 style={[
@@ -243,12 +295,16 @@ export default function OrderCard({
         orderId={o.id}
         initialItems={currentItems}
         onPatched={(items) => {
-          const patched = items.map(it => ({
+          // items may include brand / variant / notes if your sheet adds them
+          const patched: PatchItem[] = items.map((it) => ({
             qty: it.qty,
-            unit: it.unit || undefined,
-            canonical: it.canonical || undefined,
+            unit: it.unit || null,
+            canonical: it.canonical || null,
             name: it.name || undefined,
-          })) as any[];
+            brand: (it as any).brand ?? null,
+            variant: (it as any).variant ?? null,
+            notes: (it as any).notes ?? null,
+          }));
 
           // Prefer lifting to parent, otherwise patch locally for instant feel.
           if (onPatchItems) {
