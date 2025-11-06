@@ -61,3 +61,9 @@ export async function submitCorrection(
   const r = await axios.post(`${API_BASE}/api/orders/${orderId}/ai-fix`, body);
   return r.data; // { ok: true, order: {...} }
 }
+
+export async function getClarifyLink(order_id: string, line_index: number, ttlSeconds?: number) {
+  const { data } = await axios.post(`/api/clarify-link`, { order_id, line_index, ttlSeconds });
+  if (!data?.ok) throw new Error(data?.error || "clarify_link_failed");
+  return data.url as string;
+}

@@ -14,6 +14,9 @@ import java.util.concurrent.TimeUnit
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 
+// ⬇ ensure this import exists (your ContactResolver from previous step)
+import com.kartsync.notif.ContactResolver
+
 class KSNotificationListener : NotificationListenerService() {
 
   companion object {
@@ -106,6 +109,15 @@ class KSNotificationListener : NotificationListenerService() {
     return false
   }
 
+  private fun hmacSha256Hex(secret: String, data: String): String {
+    val mac = Mac.getInstance("HmacSHA256")
+    mac.init(SecretKeySpec(secret.toByteArray(Charsets.UTF_8), "HmacSHA256"))
+    val bytes = mac.doFinal(data.toByteArray(Charsets.UTF_8))
+    val sb = StringBuilder(bytes.size * 2)
+    for (b in bytes) sb.append(String.format("%02x", b))
+    return sb.toString()
+  }
+
   private fun passMemoryDedupe(sig: String): Boolean {
     val now = System.currentTimeMillis()
     val last = MEM_DEDUPE[sig]
@@ -137,9 +149,9 @@ class KSNotificationListener : NotificationListenerService() {
     }
 
     // Prefer bigText if present
-    val title = (extras.getCharSequence("android.title") ?: "").toString()
-    val text  = (extras.getCharSequence("android.text") ?: "").toString()
-    val big   = (extras.getCharSequence("android.bigText") ?: "").toString()
+    val title = (extras.getCharSequence("android.title") ?: "").toString().trim()
+    val text  = (extras.getCharSequence("android.text") ?: "").toString().trim()
+    val big   = (extras.getCharSequence("android.bigText") ?: "").toString().trim()
     val body  = if (big.isNotBlank()) big else text
     if (body.isBlank()) {
       Log.d(TAG, "skip: empty body")
@@ -156,16 +168,26 @@ class KSNotificationListener : NotificationListenerService() {
     val ingestBase = getPref("ingest_url") ?: return
     val secret     = getPref("hmac_secret") ?: return
 
-    // Local in-memory dedupe: (title|body) per few seconds
-    val sigLocal = hmacSha256Hex("local", orgPhone + "|" + title + "|" + body)
+    // Resolve sender info
+    val fromName  = title
+    // 1 If title looks like a number, use it directly; else 2 resolve from Contacts
+    val fromPhone =
+      ContactResolver.phoneFromTitleIfNumber(title)
+        ?: ContactResolver.resolvePhoneByDisplayName(applicationContext, title)
+        ?: ""
+
+    // Local in-memory dedupe: (name|phone|body) per few seconds
+    val sigLocal = hmacSha256Hex("local", orgPhone + "|" + fromName + "|" + fromPhone + "|" + body)
     if (!passMemoryDedupe(sigLocal)) {
       Log.d(TAG, "drop duplicate within window")
       return
     }
 
+    // Build payload for backend (matches your /api/ingest/local expectation)
     val payload = JSONObject().apply {
       put("org_phone", orgPhone)
-      put("from", title)
+      put("from_name", fromName)
+      put("from_phone", fromPhone)  // may be "" if not resolved
       put("text", body)
       put("ts", System.currentTimeMillis())
     }.toString()
@@ -187,14 +209,5 @@ class KSNotificationListener : NotificationListenerService() {
         Log.i(TAG, "ingest ok")
       }
     })
-  }
-
-  private fun hmacSha256Hex(secret: String, data: String): String {
-    val mac = Mac.getInstance("HmacSHA256")
-    mac.init(SecretKeySpec(secret.toByteArray(Charsets.UTF_8), "HmacSHA256"))
-    val bytes = mac.doFinal(data.toByteArray(Charsets.UTF_8))
-    val sb = StringBuilder(bytes.size * 2)
-    for (b in bytes) sb.append(String.format("%02x", b))
-    return sb.toString()
   }
 }
