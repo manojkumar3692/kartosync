@@ -14,7 +14,6 @@ import java.util.concurrent.TimeUnit
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 
-// ⬇ ensure this import exists (your ContactResolver from previous step)
 import com.kartsync.notif.ContactResolver
 
 class KSNotificationListener : NotificationListenerService() {
@@ -22,7 +21,8 @@ class KSNotificationListener : NotificationListenerService() {
   companion object {
     private const val TAG = "KSNL"
     private val MEM_DEDUPE = ConcurrentHashMap<String, Long>() // sig -> ts
-    private const val DEDUPE_WINDOW_MS = 2500L                 // drop repeats within 2.5s
+    // Longer client dedupe to avoid history replays bringing back deleted orders
+    private const val DEDUPE_WINDOW_MS = 10 * 60 * 1000L       // 10 minutes
   }
 
   private val client by lazy {
@@ -81,7 +81,7 @@ class KSNotificationListener : NotificationListenerService() {
   }
 
   // ───────────────────────────────────────────────────────────────────────────
-  // Helpers to decide if this notification is a real chat message
+  // Helpers
   // ───────────────────────────────────────────────────────────────────────────
   private fun isFromWhatsApp(pkg: String?): Boolean {
     if (pkg == null) return false
@@ -102,7 +102,6 @@ class KSNotificationListener : NotificationListenerService() {
 
   private fun looksLikeSummaryText(body: String): Boolean {
     val t = body.trim().lowercase()
-    // Typical WhatsApp summary lines
     if (Regex("^\\d+\\s+new\\s+message(s)?$").matches(t)) return true
     if (t == "new message" || t == "new messages") return true
     if (t.endsWith("new messages")) return true
@@ -122,9 +121,53 @@ class KSNotificationListener : NotificationListenerService() {
     val now = System.currentTimeMillis()
     val last = MEM_DEDUPE[sig]
     MEM_DEDUPE[sig] = now
-    // Clean old entries opportunistically
-    MEM_DEDUPE.entries.removeIf { (now - it.value) > (DEDUPE_WINDOW_MS * 4) }
+    // clean old entries opportunistically
+    MEM_DEDUPE.entries.removeIf { (now - it.value) > (DEDUPE_WINDOW_MS * 2) }
     return last == null || (now - last) > DEDUPE_WINDOW_MS
+  }
+
+  /**
+   * OLD behavior: returned only the last non-empty line.
+   * We now use this ONLY for the stacked `textLines` case (many messages),
+   * NOT for single-message bigText/text (where we want full multi-line).
+   */
+  private fun lastNonEmptyLine(s: String): String {
+    val lines = s.split('\n').map { it.trim() }.filter { it.isNotEmpty() }
+    return if (lines.isNotEmpty()) lines.last() else s.trim()
+  }
+
+  /**
+   * Extract body robustly:
+   * - If `android.textLines` exists → likely stacked messages: take ONLY the last message.
+   * - Else use `android.bigText` or `android.text` as-is (trim only ends, keep internal `\n`).
+   *
+   * This preserves multi-line orders in a single message while still
+   * avoiding re-sending whole chat history.
+   */
+  private fun extractBody(extras: android.os.Bundle): String {
+    val textLines = extras.getCharSequenceArray("android.textLines")
+    if (textLines != null && textLines.isNotEmpty()) {
+      // Inbox-style / multiple messages: we want just the latest message.
+      val last = textLines.last().toString()
+      return lastNonEmptyLine(last)
+    }
+
+    // Single notification body: may include newlines (multi-line order)
+    val big = (extras.getCharSequence("android.bigText") ?: "").toString()
+    val txt = (extras.getCharSequence("android.text") ?: "").toString()
+    val body = if (big.isNotBlank()) big else txt
+
+    // IMPORTANT: keep embedded newlines; just trim edges
+    return body.trim()
+  }
+
+  // Heuristic: try to detect "edited" notifications
+  private fun detectEditedFlag(extras: android.os.Bundle?, body: String): Boolean {
+    val sub = (extras?.getCharSequence("android.subText") ?: "").toString().lowercase()
+    val info = (extras?.getCharSequence("android.infoText") ?: "").toString().lowercase()
+    val hintEdited = body.lowercase().contains("(edited)") ||
+      sub.contains("edited") || info.contains("edited")
+    return hintEdited
   }
 
   // ───────────────────────────────────────────────────────────────────────────
@@ -139,24 +182,12 @@ class KSNotificationListener : NotificationListenerService() {
     val extras = n?.extras ?: return
 
     // Skip summaries / ongoing / calls
-    if (isGroupSummary(n)) {
-      Log.d(TAG, "skip: group summary")
-      return
-    }
-    if (isCallOrOngoing(n)) {
-      Log.d(TAG, "skip: call/ongoing")
-      return
-    }
+    if (isGroupSummary(n)) { Log.d(TAG, "skip: group summary"); return }
+    if (isCallOrOngoing(n)) { Log.d(TAG, "skip: call/ongoing"); return }
 
-    // Prefer bigText if present
     val title = (extras.getCharSequence("android.title") ?: "").toString().trim()
-    val text  = (extras.getCharSequence("android.text") ?: "").toString().trim()
-    val big   = (extras.getCharSequence("android.bigText") ?: "").toString().trim()
-    val body  = if (big.isNotBlank()) big else text
-    if (body.isBlank()) {
-      Log.d(TAG, "skip: empty body")
-      return
-    }
+    val body  = extractBody(extras)
+    if (body.isBlank()) { Log.d(TAG, "skip: empty body"); return }
 
     // Skip classic summary lines like "3 new messages"
     if (looksLikeSummaryText(body)) {
@@ -170,29 +201,44 @@ class KSNotificationListener : NotificationListenerService() {
 
     // Resolve sender info
     val fromName  = title
-    // 1 If title looks like a number, use it directly; else 2 resolve from Contacts
+    // If title looks like a number, use it directly; else resolve from Contacts
     val fromPhone =
       ContactResolver.phoneFromTitleIfNumber(title)
         ?: ContactResolver.resolvePhoneByDisplayName(applicationContext, title)
         ?: ""
 
-    // Local in-memory dedupe: (name|phone|body) per few seconds
+    // Local in-memory dedupe: (name|phone|body) per window
     val sigLocal = hmacSha256Hex("local", orgPhone + "|" + fromName + "|" + fromPhone + "|" + body)
     if (!passMemoryDedupe(sigLocal)) {
       Log.d(TAG, "drop duplicate within window")
       return
     }
 
-    // Build payload for backend (matches your /api/ingest/local expectation)
+    // Message identity from Android Notification framework
+    // sbn.key is unique per notification; good enough as msg_id for replacement attempts
+    val msgId = try {
+      (sbn.key ?: (sbn.id.toString()))
+    } catch (e: Throwable) {
+      sbn.id.toString()
+    }
+
+    val edited = detectEditedFlag(extras, body)
+    val editedAt = if (edited) System.currentTimeMillis() else 0L
+
+    // Build payload for backend (matches /api/ingest/local expectation)
     val payload = JSONObject().apply {
       put("org_phone", orgPhone)
       put("from_name", fromName)
       put("from_phone", fromPhone)  // may be "" if not resolved
-      put("text", body)
+      put("text", body)             // FULL body; may contain \n for multi-line orders
       put("ts", System.currentTimeMillis())
+      put("msg_id", msgId)
+      if (editedAt > 0L) put("edited_at", editedAt)
     }.toString()
 
     val sig = hmacSha256Hex(secret, payload)
+
+    Log.d(TAG, "SEND → /api/ingest/local payload=$payload")
 
     val req = Request.Builder()
       .url("$ingestBase/api/ingest/local")

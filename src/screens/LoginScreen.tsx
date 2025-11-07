@@ -8,10 +8,31 @@ import {
   Alert,
   SafeAreaView,
   Platform,
+  NativeModules,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import axios from "axios";
+import Config from "react-native-config";
 import { login, signup, setToken } from "../api";
 import { getBuildInfo } from "../native/buildInfo";
+
+const { KSConfig } = NativeModules || {};
+
+// Keys reused by ConnectScreen
+const KEY_URL = "ingest_url";
+const KEY_PHONE = "org_phone";
+const KEY_SECRET = "hmac_secret";
+const KEY_LOGIN_PHONE = "auth_phone";
+
+// tiny helpers
+const tidyUrl = (s?: string | null) => (s || "").trim().replace(/\/+$/, "");
+const normPhone = (raw?: string | null) => {
+  if (!raw) return "";
+  const s = String(raw).trim();
+  const plus = s.startsWith("+") ? "+" : "";
+  const digits = s.replace(/[^\d]/g, "");
+  return digits.length >= 7 ? plus + digits : "";
+};
 
 export default function LoginScreen({ onAuthed }: { onAuthed: () => void }) {
   const [mode, setMode] = useState<"login" | "signup">("login");
@@ -32,6 +53,49 @@ export default function LoginScreen({ onAuthed }: { onAuthed: () => void }) {
     })();
   }, []);
 
+  async function afterAuthSideEffects(loginPhoneRaw: string) {
+    // 1) Normalize & derive values
+    const orgPhone = normPhone(loginPhoneRaw);
+    const url = tidyUrl(Config.INGEST_URL);
+    const secret = (Config.MOBILE_INGEST_SECRET || "").trim();
+
+    // 2) Persist for RN side (ConnectScreen prints these)
+    await Promise.all([
+      AsyncStorage.setItem(KEY_LOGIN_PHONE, orgPhone), // for ConnectScreen to pick as "auth_phone"
+      AsyncStorage.setItem(KEY_PHONE, orgPhone),
+      url ? AsyncStorage.setItem(KEY_URL, url) : Promise.resolve(),
+      secret ? AsyncStorage.setItem(KEY_SECRET, secret) : Promise.resolve(),
+    ]);
+
+    // 3) Persist for Native listener (source of truth for KSNotificationListener)
+    if (KSConfig?.setConfig && url && orgPhone && secret) {
+      try {
+        await KSConfig.setConfig(url, orgPhone, secret);
+      } catch (e: any) {
+        console.warn("[KSConfig.setConfig] failed:", e?.message || e);
+      }
+    }
+
+    // 4) Optional: ping backend so ConnectScreen shows “Connected” quickly
+    if (url) {
+      try {
+        await axios.post(
+          `${url}/api/ingest/nl-ping`,
+          {
+            org_phone: orgPhone || "(unknown)",
+            device: Platform.OS,
+            state: "login_wired",
+            pkg: "com.kartsync",
+            ts: Date.now(),
+          },
+          { timeout: 6000 }
+        );
+      } catch {
+        // non-fatal; ConnectScreen has a manual Ping button too
+      }
+    }
+  }
+
   async function submit() {
     try {
       setLoading(true);
@@ -40,12 +104,20 @@ export default function LoginScreen({ onAuthed }: { onAuthed: () => void }) {
         if (!name?.trim()) return Alert.alert("Enter shop name");
         if (!phone?.trim()) return Alert.alert("Enter phone");
         if (!password?.trim()) return Alert.alert("Enter password");
-        data = await signup(name, phone, password); // ✅ logic unchanged
+        data = await signup(name, phone, password);
       } else {
-        data = await login(phone, password);        // ✅ logic unchanged
+        if (!phone?.trim()) return Alert.alert("Enter phone");
+        if (!password?.trim()) return Alert.alert("Enter password");
+        data = await login(phone, password);
       }
+
+      // token handling unchanged
       await AsyncStorage.setItem("token", data.token);
       setToken(data.token);
+
+      // NEW: wire org phone + env config for the listener
+      await afterAuthSideEffects(phone);
+
       onAuthed();
     } catch (e: any) {
       Alert.alert("Error", e?.response?.data?.error || "Failed");
@@ -58,7 +130,7 @@ export default function LoginScreen({ onAuthed }: { onAuthed: () => void }) {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: "#FFFFFF" }}>
-      {/* Subtle background accents */}
+      {/* BG accents */}
       <View pointerEvents="none" style={{ position: "absolute", inset: 0 }}>
         <View
           style={{
@@ -68,7 +140,7 @@ export default function LoginScreen({ onAuthed }: { onAuthed: () => void }) {
             width: 260,
             height: 260,
             borderRadius: 260,
-            backgroundColor: "#C7D2FE", // indigo-200
+            backgroundColor: "#C7D2FE",
             opacity: 0.35,
           }}
         />
@@ -80,14 +152,14 @@ export default function LoginScreen({ onAuthed }: { onAuthed: () => void }) {
             width: 240,
             height: 240,
             borderRadius: 240,
-            backgroundColor: "#BBF7D0", // emerald-200
+            backgroundColor: "#BBF7D0",
             opacity: 0.35,
           }}
         />
       </View>
 
       <View style={{ flex: 1, paddingHorizontal: 20, justifyContent: "center" }}>
-        {/* Brand row */}
+        {/* Brand */}
         <View style={{ alignItems: "center", marginBottom: 16 }}>
           <View
             style={{
@@ -109,33 +181,6 @@ export default function LoginScreen({ onAuthed }: { onAuthed: () => void }) {
           <Text style={{ marginTop: 8, fontSize: 18, fontWeight: "700", color: "#111827" }}>
             KartoSync
           </Text>
-
-          {/* “Live in minutes — no code” pill */}
-          {/* <View
-            style={{
-              marginTop: 10,
-              alignSelf: "center",
-              paddingHorizontal: 10,
-              paddingVertical: 6,
-              borderRadius: 999,
-              borderWidth: 1,
-              borderColor: "#E5E7EB",
-              backgroundColor: "#FFFFFF",
-              flexDirection: "row",
-              alignItems: "center",
-            }}
-          >
-            <View
-              style={{
-                width: 8,
-                height: 8,
-                borderRadius: 999,
-                backgroundColor: "#10B981", // emerald-500
-                marginRight: 6,
-              }}
-            />
-            <Text style={{ fontSize: 12, color: "#374151" }}>Live in minutes — no code</Text>
-          </View> */}
         </View>
 
         {/* Card */}
@@ -254,14 +299,13 @@ export default function LoginScreen({ onAuthed }: { onAuthed: () => void }) {
             </Text>
           </TouchableOpacity>
 
-          {/* tiny help */}
           <Text style={{ marginTop: 12, color: "#94A3B8", fontSize: 12 }}>
             If you see <Text style={{ fontWeight: "700", color: "#64748B" }}>password_not_set</Text>, set a password on
             mobile or ask the admin.
           </Text>
         </View>
 
-        {/* Footer mini meta */}
+        {/* Footer */}
         <View style={{ alignItems: "center", marginTop: 16, marginBottom: Platform.OS === "ios" ? 6 : 0 }}>
           <Text style={{ color: "#94A3B8", fontSize: 12 }}>
             {ver ? `v${ver.versionName} (${ver.versionCode}) · ${ver.buildType}` : "v…"}
@@ -272,7 +316,6 @@ export default function LoginScreen({ onAuthed }: { onAuthed: () => void }) {
   );
 }
 
-/** Reusable labeled input to keep the feel consistent with web */
 function LabeledInput({
   label,
   ...props

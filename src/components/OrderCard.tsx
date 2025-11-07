@@ -316,7 +316,9 @@ export default function OrderCard({
                 placeholder="Brand"
                 value={brandInput}
                 onChangeText={setBrandInput}
+                placeholderTextColor="#000" 
                 style={{
+                  color: "#000", 
                   flex: 1,
                   borderWidth: 1,
                   borderColor: '#E5E7EB',
@@ -327,10 +329,12 @@ export default function OrderCard({
               />
               <TextInput
                 placeholder="Variant"
+                placeholderTextColor="#000" 
                 value={variantInput}
                 onChangeText={setVariantInput}
                 style={{
                   flex: 1,
+                  color: "#000", 
                   borderWidth: 1,
                   borderColor: '#E5E7EB',
                   borderRadius: 10,
@@ -343,8 +347,10 @@ export default function OrderCard({
               placeholder="Notes (optional)"
               value={notesInput}
               onChangeText={setNotesInput}
+              placeholderTextColor="#000" 
               style={{
                 borderWidth: 1,
+                color: "#000", 
                 borderColor: '#E5E7EB',
                 borderRadius: 10,
                 paddingHorizontal: 10,
